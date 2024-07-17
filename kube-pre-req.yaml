@@ -1,0 +1,83 @@
+---
+- hosts: "controller, workers"
+  become: yes
+  tasks:
+    - name: disabling  firewalld service
+      service:
+          name: firewalld
+          state: stopped
+          enabled: no
+    - name: Enabling and starting Chrony
+      service:
+        name: chronyd
+        state: started
+        enabled: yes
+    - name: Disabling swap on all nodes
+      replace:
+        path: /etc/fstab
+        regexp: '(^/.*swap*)'
+        replace: '# \1'
+    - name: Ensure br_netfilter is enabled
+      modprobe:
+        name: br_netfilter
+        state: present
+    - name: update kernall settings
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: installing docker prerequisite packages
+      dnf:
+        name:
+          - yum-utils
+        state: present
+    - name: configuring yum repository for docker
+      shell: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    - name: installing docker latest version
+      shell: dnf install -y docker-ce docker-ce-cli containerd.io --allowerasing
+    - name: Commenting disabled_plugins in /etc/containerd/config.toml
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: '^disabled_plugins'
+        replace: '# disabled_plugins'
+    - name: setting end points for crictl
+      shell: |
+        cat > /etc/crictl.yaml <<EOF
+        runtime-endpoint: unix:///var/run/containerd/containerd.sock
+        image-endpoint: unix:///var/run/containerd/containerd.sock
+        timeout: 10
+        EOF
+    - name: start and enable containerd service
+      service:
+        name: "containerd"
+        state: started
+        enabled: yes
+    - name: "starting docker service"
+      service:
+        name: "docker"
+        state: started
+        enabled: yes
+    - name: adding kubernetes repository
+      shell: |
+        cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+        [kubernetes]
+        name=Kubernetes
+        baseurl=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+        enabled=1
+        gpgcheck=1
+        gpgkey=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+        EOF
+    - name: installing kubeadm, kubelet and kubectl
+      dnf:
+        name:
+          - kubectl
+          - kubeadm
+          - kubelet
+        state: present
+    - name: starting kubelet service
+      service:
+        name: "kubelet"
+        state: started
+        enabled: yes
