@@ -1,0 +1,32 @@
+---
+- hosts: controller
+  become: yes
+  vars:
+    token_file: join_token
+  tasks:
+    - name: resetting kubeadm
+      shell: kubeadm reset -f
+      register: output
+    - name: initialise the deployment of kubernetes cluster
+      shell: kubeadm init
+      register: output
+    - name: configuration file setup
+      file:
+        path: "$HOME/.kube"
+        state: directory
+    - name: coopying configuration file
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: $HOME/.kube/config
+        remote_src: yes
+    - name: change kubeconfig file permission
+      file:
+        path: $HOME/.kube/config
+        owner: "{{ ansible_effective_user_id }}"
+        group: "{{ ansible_effective_group_id }}"
+    - name: downloading CNI plugin
+      shell: |
+        kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s-1.11.yaml
+    - name: storing logs and generated token for future purpose
+      local_action: copy content={{ output.stdout }} dest={{ token_file }}
+      become: False
